@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SegmentPlayer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0d0d0f; --surface: #141418; --surface2: #1c1c22;
+    --border: #2a2a32; --border2: #38383f;
+    --accent: #e8ff47; --accent2: #7efff5; --danger: #ff4d6a;
+    --text: #e8e8ee; --text2: #8888a0; --text3: #55556a;
+    --radius: 4px;
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+
+  /* Header */
+  header { width: 100%; padding: 14px 24px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; }
+  .logo { font-family: var(--mono); font-size: 15px; font-weight: 600; letter-spacing: 0.08em; color: var(--accent); white-space: nowrap; }
+  .logo span { color: var(--text3); }
+  .proj-header-group { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+  #proj-name-display { font-family: var(--mono); font-size: 12px; color: var(--accent2); letter-spacing: 0.04em; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .proj-dirty { color: var(--text2) !important; }
+  .proj-dirty::after { content: ' ●'; color: var(--accent); font-size: 10px; }
+
+  /* Main */
+  main { width: 100%; max-width: 1100px; padding: 24px 24px 60px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* Upload zone */
+  #upload-zone { border: 1.5px dashed var(--border2); border-radius: var(--radius); padding: 40px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; background: var(--surface); position: relative; }
+  #upload-zone:hover, #upload-zone.drag-over { border-color: var(--accent); background: rgba(232,255,71,0.03); }
+  #upload-zone .up-icon { font-size: 28px; margin-bottom: 10px; display: block; opacity: 0.4; }
+  #upload-zone p { color: var(--text2); font-size: 13px; }
+  #upload-zone strong { color: var(--text); }
+  #file-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+  /* Video */
+  #video-wrap { display: none; flex-direction: column; gap: 12px; position: relative; }
+  #video-wrap.active { display: flex; }
+  #video-el { width: 100%; border-radius: var(--radius); background: #000; outline: none; max-height: 480px; }
+  .time-bar { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 12px; color: var(--text2); }
+  .time-bar #current-time-display { min-width: 72px; color: var(--accent); font-size: 13px; font-weight: 500; }
+  #segment-indicator { margin-left: auto; font-size: 11px; color: var(--text3); letter-spacing: 0.04em; }
+  #segment-indicator.playing { color: var(--accent2); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .progress-wrap { position: relative; height: 6px; background: var(--surface2); border-radius: 99px; cursor: pointer; overflow: visible; }
+  #progress-fill { height: 100%; background: var(--accent); border-radius: 99px; width: 0%; pointer-events: none; }
+  .segment-mark { position: absolute; top: -2px; height: 10px; border-radius: 2px; opacity: 0.5; pointer-events: none; }
+  .ctrl-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  /* Buttons */
+  button { font-family: var(--mono); font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border2); border-radius: var(--radius); padding: 7px 14px; background: var(--surface2); color: var(--text); letter-spacing: 0.03em; transition: background 0.15s, border-color 0.15s, color 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+  button:hover { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #0d0d0f; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { background: #d4eb30; border-color: #d4eb30; color: #0d0d0f; }
+  button.danger { border-color: var(--danger); color: var(--danger); background: transparent; }
+  button.danger:hover { background: rgba(255,77,106,0.1); }
+  button.small { padding: 4px 9px; font-size: 11px; }
+  button:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+
+  /* Section label */
+  .section-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--text3); text-transform: uppercase; padding: 0 0 6px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .section-label::after { content: ''; flex: 1; }
+
+  /* Add panel */
+  .add-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; display: grid; grid-template-columns: 80px 1fr 1fr 1fr auto auto; gap: 10px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--text3); text-transform: uppercase; }
+  input[type="text"] { background: var(--bg); border: 1px solid var(--border2); border-radius: var(--radius); color: var(--text); font-family: var(--mono); font-size: 13px; padding: 7px 10px; outline: none; transition: border-color 0.15s; width: 100%; }
+  input[type="text"]:focus { border-color: var(--accent); }
+  input[type="text"]::placeholder { color: var(--text3); }
+  input.error { border-color: var(--danger) !important; }
+  #inp-key { text-align: center; text-transform: uppercase; font-weight: 600; font-size: 15px; letter-spacing: 0.1em; }
+  .seg-desc { font-family: var(--sans); font-size: 11px; color: var(--text2); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+
+  /* Segment table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  th { text-align: left; padding: 8px 12px; color: var(--text3); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 1px solid var(--border); font-weight: 400; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr.segment-row:hover td { background: rgba(255,255,255,0.015); }
+  tr.segment-row.active-row td { background: rgba(126,255,245,0.06); }
+  .key-badge { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1.5px solid var(--border2); border-radius: 4px; font-weight: 600; font-size: 13px; color: var(--accent); background: var(--surface2); box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+  .key-badge.active-key { background: var(--accent); color: #0d0d0f; border-color: var(--accent); box-shadow: 0 0 10px rgba(232,255,71,0.4); }
+  td input[type="text"] { width: 90px; padding: 4px 7px; font-size: 12px; }
+  .stripe { display: inline-block; width: 3px; height: 20px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+
+  /* Projects panel */
+  #projects-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .proj-panel-header { padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--text3); text-transform: uppercase; }
+  .proj-panel-header .proj-panel-actions { margin-left: auto; display: flex; gap: 6px; }
+  #projects-list { display: flex; flex-direction: column; }
+  .proj-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s; }
+  .proj-item:last-child { border-bottom: none; }
+  .proj-item:hover { background: rgba(255,255,255,0.02); }
+  .proj-item.active-proj { background: rgba(232,255,71,0.05); }
+  .proj-item.active-proj .proj-item-name { color: var(--accent); }
+  .proj-item-icon { font-size: 16px; opacity: 0.5; flex-shrink: 0; }
+  .proj-item-name { font-family: var(--mono); font-size: 13px; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .proj-item-meta { font-family: var(--mono); font-size: 10px; color: var(--text3); white-space: nowrap; }
+  .proj-item-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; }
+  .proj-item:hover .proj-item-actions { opacity: 1; }
+  .proj-empty { padding: 24px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--text3); letter-spacing: 0.04em; }
+
+  /* Video status bar inside project */
+  .proj-video-status { font-family: var(--mono); font-size: 10px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
+  .proj-video-status.has-video { color: var(--accent2); }
+  .proj-video-status.has-video::before { content: '▶'; font-size: 9px; }
+  .proj-video-status.no-video::before { content: '○'; font-size: 9px; color: var(--text3); }
+
+  /* Save progress overlay */
+  #save-progress { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 800; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+  #save-progress.open { display: flex; }
+  #save-progress-label { font-family: var(--mono); font-size: 13px; color: var(--text); letter-spacing: 0.06em; }
+  #save-progress-bar-wrap { width: 320px; height: 6px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+  #save-progress-bar { height: 100%; background: var(--accent); width: 0%; border-radius: 99px; transition: width 0.1s; }
+
+  /* Modal */
+  .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 500; align-items: center; justify-content: center; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border2); border-radius: 6px; padding: 24px; width: 380px; max-width: 90vw; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+  .modal h2 { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--text); letter-spacing: 0.06em; }
+  .modal p { font-size: 13px; color: var(--text2); line-height: 1.5; }
+  .modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* Notification */
+  #notif { position: fixed; top: 18px; right: 18px; background: var(--surface); border: 1px solid var(--border2); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 10px 16px; font-family: var(--mono); font-size: 12px; color: var(--text); pointer-events: none; opacity: 0; transform: translateY(-6px); transition: opacity 0.2s, transform 0.2s; z-index: 999; max-width: 320px; }
+  #notif.show { opacity: 1; transform: translateY(0); }
+  #notif.warn { border-left-color: var(--danger); }
+
+  .empty-state { padding: 30px; text-align: center; color: var(--text3); font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; }
+
+  /* Fullscreen */
+  body.fs-mode { overflow: hidden; }
+  body.fs-mode header, body.fs-mode .time-bar, body.fs-mode .ctrl-row, body.fs-mode #video-tools, body.fs-mode #projects-panel { display: none !important; }
+  body.fs-mode main { padding: 0; max-width: 100%; }
+  body.fs-mode #video-wrap { gap: 0; }
+  body.fs-mode #video-el { position: fixed; inset: 0; width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; z-index: 100; background: #000; object-fit: contain; cursor: none; }
+  #esc-overlay { display: none; position: fixed; inset: 0; z-index: 200; pointer-events: none; align-items: center; justify-content: center; }
+  body.fs-mode #esc-overlay { display: flex; }
+  #esc-ring-wrap { opacity: 0; transition: opacity 0.15s; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  #esc-ring-wrap.visible { opacity: 1; }
+  #esc-ring { width: 64px; height: 64px; transform: rotate(-90deg); }
+  #esc-ring circle.track { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 5; }
+  #esc-ring circle.prog { fill: none; stroke: var(--accent); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 176; stroke-dashoffset: 176; transition: stroke-dashoffset 0.05s linear; }
+  #esc-label { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 0.1em; text-transform: uppercase; }
+  #btn-fullscreen { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15); color: var(--text2); padding: 5px 9px; font-size: 11px; backdrop-filter: blur(4px); z-index: 10; }
+
+  @media (max-width: 700px) { .add-panel { grid-template-columns: 1fr 1fr; } .proj-header-group { margin-left: 0; width: 100%; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">SEGMENT<span>/</span>PLAYER</div>
+  <div class="proj-header-group">
+    <span id="proj-name-display">Geen project</span>
+    <button id="btn-save-project" title="Opslaan (Ctrl+S)">💾 Opslaan</button>
+    <button id="btn-toggle-projects">📁 Projecten</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- Projects panel -->
+  <div id="projects-panel">
+    <div class="proj-panel-header">
+      Projecten
+      <div class="proj-panel-actions">
+        <button class="primary small" id="btn-new-project">+ Nieuw project</button>
+      </div>
+    </div>
+    <div id="projects-list"></div>
+  </div>
+
+  <!-- Upload zone -->
+  <div id="upload-zone">
+    <span class="up-icon">▶</span>
+    <p><strong>Klik of sleep een video hiernaartoe</strong></p>
+    <p style="margin-top:6px">MP4, WebM, MOV, MKV &amp; meer</p>
+    <input type="file" id="file-input" accept="video/*">
+  </div>
+
+  <!-- Video player -->
+  <div id="video-wrap">
+    <video id="video-el" controls></video>
+    <button id="btn-fullscreen">⛶ Volledig</button>
+    <div id="esc-overlay">
+      <div id="esc-ring-wrap">
+        <svg id="esc-ring" viewBox="0 0 64 64">
+          <circle class="track" cx="32" cy="32" r="28"/>
+          <circle class="prog" id="esc-prog" cx="32" cy="32" r="28"/>
+        </svg>
+        <span id="esc-label">Houd ESC vast</span>
+      </div>
+    </div>
+    <div class="time-bar">
+      <span id="current-time-display">0:00.000</span>
+      <div class="progress-wrap" id="progress-wrap" style="flex:1"><div id="progress-fill"></div></div>
+      <span id="segment-indicator">—</span>
+    </div>
+    <div class="ctrl-row">
+      <button id="btn-set-start">⌧ Set Start</button>
+      <button id="btn-set-end">⌧ Set End</button>
+      <button class="primary" id="btn-add-current">+ Add van huidige positie</button>
+    </div>
+  </div>
+
+  <!-- Segment tools -->
+  <div id="video-tools" style="display:none; flex-direction:column; gap:12px;">
+    <div class="section-label">Segment toevoegen</div>
+    <div class="add-panel">
+      <div class="field"><label>Toets (druk in)</label><input type="text" id="inp-key" placeholder="druk..." maxlength="1" readonly></div>
+      <div class="field"><label>Start tijd</label><input type="text" id="inp-start" placeholder="0:00.000"></div>
+      <div class="field"><label>Eind tijd</label><input type="text" id="inp-end" placeholder="0:00.000"></div>
+      <div class="field"><label>Beschrijving</label><input type="text" id="inp-desc" placeholder="optioneel..."></div>
+      <button class="primary" id="btn-add-segment" style="margin-bottom:1px">Toevoegen</button>
+      <button id="btn-reset-form" style="margin-bottom:1px">Reset</button>
+    </div>
+    <div class="section-label">Segmenten <span id="seg-count" style="color:var(--text2)"></span></div>
+    <div class="table-wrap">
+      <table><thead><tr><th>Toets</th><th>Start</th><th>Eind</th><th>Duur</th><th>Beschrijving</th><th></th></tr></thead>
+      <tbody id="seg-tbody"><tr><td colspan="5"><div class="empty-state">Nog geen segmenten.</div></td></tr></tbody></table>
+    </div>
+  </div>
+
+</main>
+
+<!-- Save progress overlay -->
+<div id="save-progress">
+  <div id="save-progress-label">Video opslaan…</div>
+  <div id="save-progress-bar-wrap"><div id="save-progress-bar"></div></div>
+</div>
+
+<!-- New project modal -->
+<div class="modal-backdrop" id="modal-new">
+  <div class="modal">
+    <h2>Nieuw project</h2>
+    <p>Geef het project een naam. Video en segmenten worden lokaal opgeslagen in je browser.</p>
+    <div class="field"><label>Projectnaam</label><input type="text" id="inp-proj-name" placeholder="bijv. Interview #3"></div>
+    <div class="modal-btns">
+      <button id="btn-modal-cancel">Annuleren</button>
+      <button class="primary" id="btn-modal-confirm">Aanmaken</button>
+    </div>
+  </div>
+</div>
+
+<!-- Rename modal -->
+<div class="modal-backdrop" id="modal-rename">
+  <div class="modal">
+    <h2>Project hernoemen</h2>
+    <div class="field"><label>Nieuwe naam</label><input type="text" id="inp-rename" placeholder="Nieuwe naam"></div>
+    <div class="modal-btns">
+      <button id="btn-rename-cancel">Annuleren</button>
+      <button class="primary" id="btn-rename-confirm">Opslaan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete modal -->
+<div class="modal-backdrop" id="modal-delete">
+  <div class="modal">
+    <h2>Project verwijderen</h2>
+    <p id="modal-delete-msg"></p>
+    <div class="modal-btns">
+      <button id="btn-delete-cancel">Annuleren</button>
+      <button class="danger" id="btn-delete-confirm">Verwijderen</button>
+    </div>
+  </div>
+</div>
+
+<div id="notif"></div>
+
+<script>
+// ══════════════════════════════════════════════════════
+//  Helpers
+// ══════════════════════════════════════════════════════
+const COLORS = ['#e8ff47','#7efff5','#ff7eb3','#ffb347','#b47eff','#47ffa0','#ff6b6b','#47c8ff'];
+const LS_KEY = 'segmentplayer_v2';
+
+function genId() { return Math.random().toString(36).slice(2, 9); }
+function colorFor(i) { return COLORS[i % COLORS.length]; }
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function formatTime(s) {
+  if (isNaN(s) || s == null) return '0:00.000';
+  return `${Math.floor(s/60)}:${(s%60).toFixed(3).padStart(6,'0')}`;
+}
+function parseTime(str) {
+  str = (str||'').trim();
+  if (/^\d+(\.\d+)?$/.test(str)) return parseFloat(str);
+  const m = str.match(/^(\d+):(\d{1,2}(?:\.\d+)?)$/);
+  return m ? parseInt(m[1])*60 + parseFloat(m[2]) : NaN;
+}
+
+let _notifTimer;
+function notify(msg, warn=false) {
+  const el = document.getElementById('notif');
+  el.textContent = msg; el.className = 'show'+(warn?' warn':'');
+  clearTimeout(_notifTimer); _notifTimer = setTimeout(()=>el.className='', 2800);
+}
+
+// ══════════════════════════════════════════════════════
+//  localStorage — project metadata (no video bytes here)
+// ══════════════════════════════════════════════════════
+function lsLoad() { try { return JSON.parse(localStorage.getItem(LS_KEY))||{}; } catch { return {}; } }
+function lsSave(d) { localStorage.setItem(LS_KEY, JSON.stringify(d)); }
+
+function lsGetProject(id) { return lsLoad()[id] || null; }
+function lsSaveProject(id, patch) {
+  const all = lsLoad();
+  all[id] = { ...(all[id]||{}), ...patch, updatedAt: Date.now() };
+  lsSave(all);
+}
+function lsDeleteProject(id) { const all=lsLoad(); delete all[id]; lsSave(all); }
+function lsAllProjects() { return Object.values(lsLoad()).sort((a,b)=>b.updatedAt-a.updatedAt); }
+
+// ══════════════════════════════════════════════════════
+//  OPFS — video file storage
+//  Files stored at: videos/{projectId}.bin
+// ══════════════════════════════════════════════════════
+async function opfsRoot() {
+  return await navigator.storage.getDirectory();
+}
+async function opfsVideosDir() {
+  const root = await opfsRoot();
+  return await root.getDirectoryHandle('videos', { create: true });
+}
+
+async function opfsSaveVideo(projectId, file, onProgress) {
+  const dir = await opfsVideosDir();
+  const fh = await dir.getFileHandle(projectId + '.bin', { create: true });
+  const writable = await fh.createWritable();
+  // stream in chunks so we can report progress
+  const CHUNK = 2 * 1024 * 1024; // 2 MB
+  const total = file.size;
+  let offset = 0;
+  while (offset < total) {
+    const slice = file.slice(offset, offset + CHUNK);
+    const buf = await slice.arrayBuffer();
+    await writable.write({ type: 'write', position: offset, data: buf });
+    offset += buf.byteLength;
+    if (onProgress) onProgress(offset / total);
+  }
+  await writable.close();
+}
+
+async function opfsLoadVideo(projectId) {
+  try {
+    const dir = await opfsVideosDir();
+    const fh = await dir.getFileHandle(projectId + '.bin');
+    return await fh.getFile();
+  } catch { return null; }
+}
+
+async function opfsDeleteVideo(projectId) {
+  try {
+    const dir = await opfsVideosDir();
+    await dir.removeEntry(projectId + '.bin');
+  } catch {}
+}
+
+async function opfsHasVideo(projectId) {
+  try {
+    const dir = await opfsVideosDir();
+    await dir.getFileHandle(projectId + '.bin');
+    return true;
+  } catch { return false; }
+}
+
+// ══════════════════════════════════════════════════════
+//  App state
+// ══════════════════════════════════════════════════════
+let segments = [];
+let activeSegment = null;
+let pendingStart = null;
+let capturingKey = false;
+let currentProjectId = null;
+let isDirty = false;
+let currentVideoObjectURL = null; // track for revoke
+
+function markDirty() { isDirty = true; updateProjNameDisplay(); }
+function markClean() { isDirty = false; updateProjNameDisplay(); }
+
+// ══════════════════════════════════════════════════════
+//  DOM refs
+// ══════════════════════════════════════════════════════
+const uploadZone   = document.getElementById('upload-zone');
+const fileInput    = document.getElementById('file-input');
+const videoWrap    = document.getElementById('video-wrap');
+const videoTools   = document.getElementById('video-tools');
+const video        = document.getElementById('video-el');
+const progressWrap = document.getElementById('progress-wrap');
+const progressFill = document.getElementById('progress-fill');
+const curTimeDisp  = document.getElementById('current-time-display');
+const segIndicator = document.getElementById('segment-indicator');
+const inpKey       = document.getElementById('inp-key');
+const inpStart     = document.getElementById('inp-start');
+const inpEnd       = document.getElementById('inp-end');
+const segTbody     = document.getElementById('seg-tbody');
+const segCount     = document.getElementById('seg-count');
+const projNameDisp = document.getElementById('proj-name-display');
+const projectsList = document.getElementById('projects-list');
+const saveOverlay  = document.getElementById('save-progress');
+const saveLabel    = document.getElementById('save-progress-label');
+const saveBar      = document.getElementById('save-progress-bar');
+
+// ══════════════════════════════════════════════════════
+//  Project UI
+// ══════════════════════════════════════════════════════
+function updateProjNameDisplay() {
+  if (!currentProjectId) { projNameDisp.textContent = 'Geen project'; projNameDisp.className = ''; return; }
+  const p = lsGetProject(currentProjectId);
+  if (!p) return;
+  projNameDisp.textContent = p.name;
+  projNameDisp.className = isDirty ? 'proj-dirty' : '';
+}
+
+async function renderProjectsList() {
+  const all = lsAllProjects();
+  if (!all.length) {
+    projectsList.innerHTML = '<div class="proj-empty">Nog geen projecten — maak er een nieuw aan.</div>';
+    return;
+  }
+  // check which have video in OPFS
+  projectsList.innerHTML = '';
+  for (const proj of all) {
+    const hasVid = await opfsHasVideo(proj.id);
+    const segsLen = (proj.segments||[]).length;
+    const date = new Date(proj.updatedAt).toLocaleDateString('nl-NL',{day:'2-digit',month:'short'});
+    const div = document.createElement('div');
+    div.className = 'proj-item' + (proj.id === currentProjectId ? ' active-proj' : '');
+    div.dataset.id = proj.id;
+    div.innerHTML = `
+      <span class="proj-item-icon">🎬</span>
+      <div style="flex:1;min-width:0">
+        <div class="proj-item-name">${escHtml(proj.name)}</div>
+        <div class="proj-video-status ${hasVid?'has-video':'no-video'}">${hasVid ? escHtml(proj.videoName||'video opgeslagen') : 'geen video'}</div>
+      </div>
+      <span class="proj-item-meta">${segsLen} seg · ${date}</span>
+      <div class="proj-item-actions">
+        <button class="small" data-rename="${proj.id}" title="Hernoemen">✏️</button>
+        <button class="small danger" data-del-proj="${proj.id}" title="Verwijderen">✕</button>
+      </div>`;
+    div.addEventListener('click', e => {
+      if (e.target.closest('[data-rename]') || e.target.closest('[data-del-proj]')) return;
+      loadProjectIntoApp(proj.id);
+    });
+    projectsList.appendChild(div);
+  }
+  projectsList.querySelectorAll('[data-rename]').forEach(btn =>
+    btn.addEventListener('click', e => { e.stopPropagation(); openRenameModal(btn.dataset.rename); }));
+  projectsList.querySelectorAll('[data-del-proj]').forEach(btn =>
+    btn.addEventListener('click', e => { e.stopPropagation(); openDeleteModal(btn.dataset.delProj); }));
+}
+
+async function loadProjectIntoApp(id) {
+  const proj = lsGetProject(id);
+  if (!proj) return;
+  currentProjectId = id;
+  segments = (proj.segments||[]).map(s=>({...s}));
+  markClean();
+  renderTable();
+
+  // load video from OPFS
+  const file = await opfsLoadVideo(id);
+  if (file) {
+    setVideoFile(file, proj.videoName || file.name);
+  } else {
+    // hide player if no video stored
+    uploadZone.style.display = '';
+    videoWrap.classList.remove('active');
+    videoTools.style.display = 'none';
+  }
+
+  await renderProjectsList();
+  notify(`Project geladen: ${proj.name}`);
+}
+
+function setVideoFile(file, name) {
+  if (currentVideoObjectURL) URL.revokeObjectURL(currentVideoObjectURL);
+  currentVideoObjectURL = URL.createObjectURL(file);
+  video.src = currentVideoObjectURL;
+  uploadZone.style.display = 'none';
+  videoWrap.classList.add('active');
+  videoTools.style.display = 'flex';
+  video.addEventListener('loadedmetadata', drawMarks, { once: true });
+}
+
+// ══════════════════════════════════════════════════════
+//  Save project
+// ══════════════════════════════════════════════════════
+async function saveCurrentProject() {
+  if (!currentProjectId) { openNewModal(true); return; }
+
+  // save segments to ls
+  lsSaveProject(currentProjectId, { segments });
+
+  // if there's a pending new video file to save to opfs
+  if (_pendingVideoFile) {
+    await saveVideoToOPFS(currentProjectId, _pendingVideoFile);
+    lsSaveProject(currentProjectId, { videoName: _pendingVideoFile.name });
+    _pendingVideoFile = null;
+  }
+
+  markClean();
+  await renderProjectsList();
+  notify('Project opgeslagen.');
+}
+
+let _pendingVideoFile = null; // file object waiting to be saved on next save
+
+async function saveVideoToOPFS(projectId, file) {
+  saveLabel.textContent = `Video opslaan… (${(file.size/1024/1024).toFixed(1)} MB)`;
+  saveBar.style.width = '0%';
+  saveOverlay.classList.add('open');
+  try {
+    await opfsSaveVideo(projectId, file, pct => {
+      saveBar.style.width = (pct * 100).toFixed(1) + '%';
+    });
+  } finally {
+    saveOverlay.classList.remove('open');
+  }
+}
+
+document.getElementById('btn-save-project').addEventListener('click', saveCurrentProject);
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey) && e.key==='s') { e.preventDefault(); saveCurrentProject(); }
+});
+
+// ══════════════════════════════════════════════════════
+//  Toggle projects panel
+// ══════════════════════════════════════════════════════
+let projPanelOpen = true;
+document.getElementById('btn-toggle-projects').addEventListener('click', () => {
+  projPanelOpen = !projPanelOpen;
+  document.getElementById('projects-panel').style.display = projPanelOpen ? '' : 'none';
+});
+
+// ══════════════════════════════════════════════════════
+//  New project modal
+// ══════════════════════════════════════════════════════
+let _newModalSaveAfter = false;
+
+function openNewModal(saveAfter=false) {
+  _newModalSaveAfter = saveAfter;
+  document.getElementById('inp-proj-name').value = '';
+  document.getElementById('modal-new').classList.add('open');
+  setTimeout(()=>document.getElementById('inp-proj-name').focus(), 50);
+}
+
+document.getElementById('btn-new-project').addEventListener('click', ()=>openNewModal());
+document.getElementById('btn-modal-cancel').addEventListener('click', ()=>document.getElementById('modal-new').classList.remove('open'));
+document.getElementById('btn-modal-confirm').addEventListener('click', confirmNewProject);
+document.getElementById('inp-proj-name').addEventListener('keydown', e=>{
+  if (e.key==='Enter') confirmNewProject();
+  if (e.key==='Escape') document.getElementById('modal-new').classList.remove('open');
+});
+
+async function confirmNewProject() {
+  const name = document.getElementById('inp-proj-name').value.trim();
+  if (!name) { document.getElementById('inp-proj-name').classList.add('error'); return; }
+  document.getElementById('inp-proj-name').classList.remove('error');
+  document.getElementById('modal-new').classList.remove('open');
+  const id = genId();
+  const now = Date.now();
+  lsSaveProject(id, { id, name, createdAt: now, segments: [] });
+  currentProjectId = id;
+  if (_newModalSaveAfter) {
+    // save current state including pending video
+    lsSaveProject(id, { segments });
+    if (_pendingVideoFile) {
+      await saveVideoToOPFS(id, _pendingVideoFile);
+      lsSaveProject(id, { videoName: _pendingVideoFile.name });
+      _pendingVideoFile = null;
+    }
+    markClean();
+  } else {
+    segments = [];
+    markClean();
+    renderTable();
+    drawMarks();
+    uploadZone.style.display = '';
+    videoWrap.classList.remove('active');
+    videoTools.style.display = 'none';
+  }
+  await renderProjectsList();
+  updateProjNameDisplay();
+  notify(`Project aangemaakt: ${name}`);
+}
+
+// ══════════════════════════════════════════════════════
+//  Rename modal
+// ══════════════════════════════════════════════════════
+let _renameTargetId = null;
+function openRenameModal(id) {
+  _renameTargetId = id;
+  document.getElementById('inp-rename').value = lsGetProject(id)?.name||'';
+  document.getElementById('modal-rename').classList.add('open');
+  setTimeout(()=>document.getElementById('inp-rename').focus(), 50);
+}
+document.getElementById('btn-rename-cancel').addEventListener('click',()=>document.getElementById('modal-rename').classList.remove('open'));
+document.getElementById('btn-rename-confirm').addEventListener('click', confirmRename);
+document.getElementById('inp-rename').addEventListener('keydown',e=>{
+  if(e.key==='Enter') confirmRename();
+  if(e.key==='Escape') document.getElementById('modal-rename').classList.remove('open');
+});
+async function confirmRename() {
+  const name = document.getElementById('inp-rename').value.trim();
+  if (!name) { document.getElementById('inp-rename').classList.add('error'); return; }
+  document.getElementById('inp-rename').classList.remove('error');
+  document.getElementById('modal-rename').classList.remove('open');
+  lsSaveProject(_renameTargetId, { name });
+  await renderProjectsList();
+  updateProjNameDisplay();
+  notify(`Hernoemd naar: ${name}`);
+}
+
+// ══════════════════════════════════════════════════════
+//  Delete modal
+// ══════════════════════════════════════════════════════
+let _deleteTargetId = null;
+function openDeleteModal(id) {
+  _deleteTargetId = id;
+  const p = lsGetProject(id);
+  document.getElementById('modal-delete-msg').textContent = `Weet je zeker dat je "${p?.name}" wilt verwijderen? De video en alle segmenten worden permanent gewist.`;
+  document.getElementById('modal-delete').classList.add('open');
+}
+document.getElementById('btn-delete-cancel').addEventListener('click',()=>document.getElementById('modal-delete').classList.remove('open'));
+document.getElementById('btn-delete-confirm').addEventListener('click', async ()=>{
+  document.getElementById('modal-delete').classList.remove('open');
+  const wasActive = _deleteTargetId === currentProjectId;
+  await opfsDeleteVideo(_deleteTargetId);
+  lsDeleteProject(_deleteTargetId);
+  if (wasActive) {
+    currentProjectId = null; segments = []; markClean();
+    renderTable(); drawMarks();
+    uploadZone.style.display = ''; videoWrap.classList.remove('active'); videoTools.style.display='none';
+  }
+  await renderProjectsList();
+  updateProjNameDisplay();
+  notify('Project verwijderd.');
+});
+
+document.querySelectorAll('.modal-backdrop').forEach(bd=>bd.addEventListener('click',e=>{if(e.target===bd)bd.classList.remove('open');}));
+
+// ══════════════════════════════════════════════════════
+//  File loading
+// ══════════════════════════════════════════════════════
+function loadFile(file) {
+  if (!file || !file.type.startsWith('video/')) { notify('Geen geldig videobestand.', true); return; }
+  _pendingVideoFile = file; // store for save
+  markDirty();
+  setVideoFile(file, file.name);
+  notify(`Video geladen: ${file.name} — druk Ctrl+S om op te slaan.`);
+}
+
+fileInput.addEventListener('change', e => { if(e.target.files[0]) loadFile(e.target.files[0]); });
+uploadZone.addEventListener('dragover', e=>{e.preventDefault();uploadZone.classList.add('drag-over');});
+uploadZone.addEventListener('dragleave', ()=>uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e=>{e.preventDefault();uploadZone.classList.remove('drag-over');loadFile(e.dataTransfer.files[0]);});
+
+// ══════════════════════════════════════════════════════
+//  RAF loop
+// ══════════════════════════════════════════════════════
+function tick() {
+  if (!video.paused && activeSegment && video.currentTime >= activeSegment.end) {
+    video.pause(); video.currentTime = activeSegment.end;
+    segIndicator.textContent = `[${activeSegment.key.toUpperCase()}] done`;
+    segIndicator.classList.remove('playing'); activeSegment = null;
+  }
+  const t=video.currentTime, d=video.duration||1;
+  curTimeDisp.textContent = formatTime(t);
+  progressFill.style.width = ((t/d)*100).toFixed(3)+'%';
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+let scrubbing=false;
+progressWrap.addEventListener('mousedown',e=>{scrubbing=true;doScrub(e);});
+document.addEventListener('mousemove',e=>{if(scrubbing)doScrub(e);});
+document.addEventListener('mouseup',()=>{scrubbing=false;});
+function doScrub(e){const r=progressWrap.getBoundingClientRect();video.currentTime=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width))*(video.duration||0);}
+
+function drawMarks() {
+  document.querySelectorAll('.segment-mark').forEach(m=>m.remove());
+  const d=video.duration; if(!d) return;
+  segments.forEach(seg=>{
+    const el=document.createElement('div');
+    el.className='segment-mark';
+    el.style.left=((seg.start/d)*100)+'%';
+    el.style.width=(((seg.end-seg.start)/d)*100)+'%';
+    el.style.background=seg.color;
+    el.title=`[${seg.key.toUpperCase()}] ${formatTime(seg.start)} → ${formatTime(seg.end)}`;
+    progressWrap.appendChild(el);
+  });
+}
+video.addEventListener('loadedmetadata', drawMarks);
+
+// ══════════════════════════════════════════════════════
+//  Key capture
+// ══════════════════════════════════════════════════════
+inpKey.addEventListener('focus',()=>{inpKey.value='';capturingKey=true;});
+inpKey.addEventListener('blur',()=>{capturingKey=false;});
+inpKey.addEventListener('keydown',e=>{
+  if(!capturingKey)return; e.preventDefault();
+  const k=e.key.toLowerCase();
+  if(k.length===1&&/^[a-z0-9]$/.test(k)){inpKey.value=k.toUpperCase();inpKey.blur();}
+});
+
+// ══════════════════════════════════════════════════════
+//  Set start / end
+// ══════════════════════════════════════════════════════
+document.getElementById('btn-set-start').addEventListener('click',()=>{
+  pendingStart=video.currentTime; inpStart.value=formatTime(pendingStart);
+  notify('Start tijd gezet: '+formatTime(pendingStart));
+});
+document.getElementById('btn-set-end').addEventListener('click',()=>{
+  inpEnd.value=formatTime(video.currentTime);
+  notify('Eind tijd gezet: '+formatTime(video.currentTime));
+});
+document.getElementById('btn-add-current').addEventListener('click',()=>{
+  inpStart.value=formatTime(video.currentTime);
+  inpEnd.value=formatTime(Math.min(video.currentTime+3,video.duration||video.currentTime+3));
+  inpKey.focus(); notify('Stel een toets in en druk op Toevoegen.');
+});
+
+// ══════════════════════════════════════════════════════
+//  Add / reset segment
+// ══════════════════════════════════════════════════════
+document.getElementById('btn-add-segment').addEventListener('click',addSegment);
+document.getElementById('btn-reset-form').addEventListener('click',resetForm);
+
+function addSegment() {
+  const key=inpKey.value.toLowerCase().trim();
+  const start=parseTime(inpStart.value), end=parseTime(inpEnd.value);
+  const desc=document.getElementById('inp-desc').value.trim();
+  let valid=true;
+  [inpKey,inpStart,inpEnd].forEach(el=>el.classList.remove('error'));
+  if(!key||!/^[a-z0-9]$/.test(key)){inpKey.classList.add('error');valid=false;}
+  if(isNaN(start)||start<0){inpStart.classList.add('error');valid=false;}
+  if(isNaN(end)||end<=start){inpEnd.classList.add('error');valid=false;}
+  if(!valid){notify('Controleer de invoer.',true);return;}
+  if(segments.find(s=>s.key===key)){notify(`Toets "${key.toUpperCase()}" al in gebruik!`,true);inpKey.classList.add('error');return;}
+  segments.push({id:genId(),key,start,end,desc,color:colorFor(segments.length)});
+  markDirty(); renderTable(); drawMarks(); resetForm();
+  notify(`Segment [${key.toUpperCase()}] toegevoegd.`);
+}
+function resetForm() {
+  inpKey.value='';inpStart.value='';inpEnd.value='';document.getElementById('inp-desc').value='';
+  [inpKey,inpStart,inpEnd].forEach(el=>el.classList.remove('error'));
+  pendingStart=null;
+}
+
+// ══════════════════════════════════════════════════════
+//  Render table
+// ══════════════════════════════════════════════════════
+function renderTable() {
+  segCount.textContent = segments.length ? `(${segments.length})` : '';
+  if (!segments.length) {
+    segTbody.innerHTML='<tr><td colspan="5"><div class="empty-state">Nog geen segmenten.</div></td></tr>';
+    return;
+  }
+  segTbody.innerHTML='';
+  segments.forEach(seg=>{
+    const dur=(seg.end-seg.start).toFixed(3);
+    const tr=document.createElement('tr');
+    tr.className='segment-row'; tr.dataset.id=seg.id;
+    tr.innerHTML=`
+      <td><span class="key-badge" id="badge-${seg.id}">${seg.key.toUpperCase()}</span></td>
+      <td><span class="stripe" style="background:${seg.color}"></span>
+          <input type="text" class="inline-edit" data-field="start" data-id="${seg.id}" value="${formatTime(seg.start)}"></td>
+      <td><input type="text" class="inline-edit" data-field="end" data-id="${seg.id}" value="${formatTime(seg.end)}"></td>
+      <td style="color:var(--text2)">${dur}s</td>
+      <td><input type="text" class="inline-edit inline-desc" data-field="desc" data-id="${seg.id}" value="${escHtml(seg.desc||'')}" placeholder="—" style="width:160px"></td>
+      <td><button class="small danger" data-del="${seg.id}">✕</button></td>`;
+    segTbody.appendChild(tr);
+  });
+  segTbody.querySelectorAll('.inline-edit').forEach(inp=>inp.addEventListener('change',e=>{
+    const id=e.target.dataset.id,field=e.target.dataset.field,val=parseTime(e.target.value);
+    const seg=segments.find(s=>s.id===id);
+    if(!seg||isNaN(val)){e.target.classList.add('error');return;}
+    e.target.classList.remove('error');
+    if(field==='start'&&val>=seg.end){e.target.classList.add('error');notify('Start moet vóór eind liggen.',true);return;}
+    if(field==='end'&&val<=seg.start){e.target.classList.add('error');notify('Eind moet na start liggen.',true);return;}
+    seg[field]=val; markDirty(); renderTable(); drawMarks();
+    notify(`Segment [${seg.key.toUpperCase()}] bijgewerkt.`);
+  }));
+  segTbody.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',e=>{
+    segments=segments.filter(s=>s.id!==e.target.dataset.del);
+    markDirty(); renderTable(); drawMarks(); notify('Segment verwijderd.');
+  }));
+}
+
+// ══════════════════════════════════════════════════════
+//  Keyboard playback
+// ══════════════════════════════════════════════════════
+document.addEventListener('keydown', e=>{
+  if(capturingKey) return;
+  const tag=document.activeElement.tagName.toLowerCase();
+  if(tag==='input'||tag==='textarea'||tag==='select') return;
+  const key=e.key.toLowerCase();
+  const seg=segments.find(s=>s.key===key);
+  if(!seg) return;
+  e.preventDefault();
+  document.querySelectorAll('.key-badge').forEach(b=>b.classList.remove('active-key'));
+  document.getElementById('badge-'+seg.id)?.classList.add('active-key');
+  document.querySelectorAll('.segment-row').forEach(r=>r.classList.remove('active-row'));
+  segTbody.querySelector(`[data-id="${seg.id}"]`)?.classList.add('active-row');
+  activeSegment=seg; video.currentTime=seg.start; video.play().catch(()=>{});
+  segIndicator.textContent=`▶ [${seg.key.toUpperCase()}] ${seg.desc ? seg.desc+' · ' : ''}${formatTime(seg.start)} → ${formatTime(seg.end)}`;
+  segIndicator.classList.add('playing');
+});
+
+// ══════════════════════════════════════════════════════
+//  Fullscreen
+// ══════════════════════════════════════════════════════
+let isFS=false,escHoldTimer=null,escHoldStart=null;
+const ESC_HOLD_MS=800;
+const escProg=document.getElementById('esc-prog');
+const escRingWrap=document.getElementById('esc-ring-wrap');
+const CIRC=2*Math.PI*28;
+
+function enterFullscreen(){isFS=true;document.body.classList.add('fs-mode');video.removeAttribute('controls');notify('Houd ESC vast om te verlaten');}
+function exitFullscreen(){isFS=false;document.body.classList.remove('fs-mode');video.setAttribute('controls','');cancelEscHold();}
+function cancelEscHold(){clearInterval(escHoldTimer);escHoldTimer=null;escHoldStart=null;escRingWrap.classList.remove('visible');escProg.style.strokeDashoffset=CIRC;}
+
+document.getElementById('btn-fullscreen').addEventListener('click',enterFullscreen);
+document.addEventListener('keydown',e=>{
+  if(!isFS||e.key!=='Escape')return; e.preventDefault();
+  if(escHoldStart!==null)return;
+  escHoldStart=performance.now(); escRingWrap.classList.add('visible');
+  escHoldTimer=setInterval(()=>{
+    const ratio=Math.min((performance.now()-escHoldStart)/ESC_HOLD_MS,1);
+    escProg.style.strokeDashoffset=CIRC*(1-ratio);
+    if(ratio>=1)exitFullscreen();
+  },16);
+});
+document.addEventListener('keyup',e=>{if(e.key==='Escape'&&isFS)cancelEscHold();});
+
+// ══════════════════════════════════════════════════════
+//  Boot
+// ══════════════════════════════════════════════════════
+(async ()=>{
+  // check OPFS support
+  if (!navigator.storage || !navigator.storage.getDirectory) {
+    notify('⚠️ Je browser ondersteunt geen lokale videoopslag (OPFS). Gebruik Chrome/Edge.', true);
+  }
+  await renderProjectsList();
+  updateProjNameDisplay();
+  renderTable();
+})();
+</script>
+</body>
+</html>
